@@ -162,7 +162,7 @@ export default function CreateMusic() {
       if (credits < 1) {
         logger.error('Insufficient credits', { email: (await supabase.auth.getUser()).data.user?.email });
         toast({ title: 'Erro', description: 'Você precisa de pelo menos 1 crédito para criar uma música.' });
-        router.push('/precos');
+        router.push('/comprar-creditos');
         return;
       }
 
@@ -182,42 +182,26 @@ Estilo: ${data.musicStyle}
 Idade: ${data.childAge}
 Observação: ${data.additionalInfo || 'nenhuma'}`;
 
-      const orderData: OrderInsert = {
-        id: crypto.randomUUID(), // UUID gerado pelo cliente
-        updatedAt: new Date().toISOString(), // será sobrescrito pelo banco
-        customerId: user.id,
-        prompt,
-        status: 'AWAITING_PAYMENT',
-        paymentStatus: 'PENDING',
-      };
+      // Use the new API endpoint
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          customerId: user.id,
+        }),
+      });
 
-
-      const { error } = await supabase
-        .from('Order')
-        .insert([orderData]);
-
-      if (error) {
-        logger.error('Failed to create order', { error: error.message });
-        toast({ title: 'Erro', description: 'Falha ao criar pedido. Tente novamente.' });
-        return;
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create order');
       }
 
-      const updateData: ProfileUpdate = {
-        credits: credits - 1,
-      };
-
-      const { error: creditsError } = await supabase
-        .from('Profile')
-        .update(updateData)
-        .eq('id', user.id);
-
-      if (creditsError) {
-        logger.error('Failed to update credits', { error: creditsError.message });
-        toast({ title: 'Erro', description: 'Falha ao atualizar créditos. Tente novamente.' });
-        return;
-      }
-
-      logger.info('Order created successfully', { email: user.email, prompt });
+      setCredits(result.remainingCredits);
+      logger.info('Order created successfully via API', { email: user.email, orderId: result.order.id });
       toast({ title: 'Sucesso', description: 'Música encomendada! Você será redirecionado.' });
       router.push('/dashboard');
     } catch (err) {

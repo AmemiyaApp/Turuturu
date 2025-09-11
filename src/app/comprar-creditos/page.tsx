@@ -1,17 +1,23 @@
 // src\app\comprar-creditos\page.tsx
-// src/app/comprar-creditos/page.tsx
 'use client';
 
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { loadStripe } from '@stripe/stripe-js';
+import { supabase } from '@/lib/supabase/client';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { logger } from '@/lib/logger';
-import { Check, Star, Zap } from 'lucide-react';
+import { useToast } from '@/lib/utils/useToast';
+import { Check, Star, Zap, CreditCard, Loader } from 'lucide-react';
 
-// IMPORTANTE: Substitua pelos IDs de Preço que você criou no seu painel Stripe!
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
 const creditPackages = [
   {
     name: '1 Crédito',
     price: 'R$ 99,90',
-    priceId: 'price_SEU_ID_DO_PACOTE_DE_1_CREDITO',
+    amount: 99.90,
+    credits: 1,
     features: ['1 música 100% personalizada', 'Entrega em até 48h', 'Acesso vitalício ao áudio'],
     popular: false,
   },
@@ -19,7 +25,8 @@ const creditPackages = [
     name: '3 Créditos',
     price: 'R$ 229,90',
     originalPrice: 'R$ 299,70',
-    priceId: 'price_SEU_ID_DO_PACOTE_DE_3_CREDITOS',
+    amount: 229.90,
+    credits: 3,
     features: ['3 músicas personalizadas', 'Economia de 23%', 'Suporte prioritário'],
     popular: true,
   },
@@ -27,17 +34,87 @@ const creditPackages = [
     name: '5 Créditos',
     price: 'R$ 399,90',
     originalPrice: 'R$ 499,50',
-    priceId: 'price_SEU_ID_DO_PACOTE_DE_5_CREDITOS',
+    amount: 399.90,
+    credits: 5,
     features: ['5 músicas personalizadas', 'Economia de 20%', 'Ideal para presentear'],
     popular: false,
   },
 ];
 
 export default function ComprarCreditosPage() {
-  const handlePurchase = (priceId: string) => {
-    logger.info('Attempting to purchase package', { priceId });
-    // A lógica de checkout será implementada na próxima etapa
-    alert(`Iniciando compra para o Price ID: ${priceId}`);
+  const { toast } = useToast();
+  const router = useRouter();
+  const [loading, setLoading] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/auth?error=Unauthorized');
+        return;
+      }
+      setUser(user);
+    }
+    checkAuth();
+  }, [router]);
+
+  const handlePurchase = async (pkg: typeof creditPackages[0]) => {
+    if (!user) {
+      toast({ title: 'Erro', description: 'Você precisa estar logado.' });
+      router.push('/auth');
+      return;
+    }
+
+    setLoading(pkg.name);
+    try {
+      logger.info('Starting purchase process', { package: pkg.name, amount: pkg.amount });
+
+      // Create payment intent
+      const response = await fetch('/api/stripe/create-payment-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: pkg.amount,
+          customerId: user.id,
+          orderType: 'credit_purchase',
+        }),
+      });
+
+      const { clientSecret, error } = await response.json();
+      if (error) {
+        throw new Error(error);
+      }
+
+      // Redirect to Stripe Checkout
+      const stripe = await stripePromise;
+      if (!stripe) {
+        throw new Error('Stripe não foi carregado');
+      }
+
+      const { error: stripeError } = await stripe.confirmPayment({
+        clientSecret,
+        confirmParams: {
+          return_url: `${window.location.origin}/dashboard?payment=success`,
+        },
+      });
+
+      if (stripeError) {
+        throw new Error(stripeError.message);
+      }
+
+    } catch (error) {
+      console.error('Purchase error:', error);
+      logger.error('Purchase failed', { error: String(error), package: pkg.name });
+      toast({ 
+        title: 'Erro na Compra', 
+        description: 'Não foi possível processar o pagamento. Tente novamente.' 
+      });
+    } finally {
+      setLoading(null);
+    }
   };
 
   return (
@@ -86,10 +163,21 @@ export default function ComprarCreditosPage() {
                 ))}
               </ul>
               <button
-                onClick={() => handlePurchase(pkg.priceId)}
-                className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity"
+                onClick={() => handlePurchase(pkg)}
+                disabled={loading === pkg.name}
+                className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Comprar Agora
+                {loading === pkg.name ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-4 h-4" />
+                    Comprar Agora
+                  </>
+                )}
               </button>
             </div>
           ))}

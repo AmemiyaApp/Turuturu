@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/monitoring';
 
 interface ToastProps {
   title?: React.ReactNode;
@@ -93,3 +93,8 @@ export function useToast() {
 }
 
 export { toast };
+
+// ToastProvider component for the layout
+export function ToastProvider({ children }: { children: React.ReactNode }) {
+  return React.createElement(React.Fragment, null, children);
+}
