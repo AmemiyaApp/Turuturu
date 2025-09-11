@@ -101,23 +101,26 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
 }
 
 async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
-  const { customerId, orderType } = paymentIntent.metadata;
+  const { customerId, orderType, credits: creditsMetadata } = paymentIntent.metadata;
   
   if (orderType === 'credit_purchase') {
-    // Handle credit purchase
-    const amount = paymentIntent.amount / 100; // Convert from cents
-    const credits = calculateCreditsFromAmount(amount);
+    // Handle credit purchase - get credits from metadata
+    const credits = parseInt(creditsMetadata || '0', 10);
     
-    await prisma.profile.update({
-      where: { id: customerId },
-      data: {
-        credits: {
-          increment: credits,
+    if (credits > 0) {
+      await prisma.profile.update({
+        where: { id: customerId },
+        data: {
+          credits: {
+            increment: credits,
+          },
         },
-      },
-    });
+      });
 
-    console.log(`Added ${credits} credits to customer ${customerId}`);
+      console.log(`Added ${credits} credits to customer ${customerId} from product metadata`);
+    } else {
+      console.error(`Invalid credits metadata for customer ${customerId}:`, creditsMetadata);
+    }
   } else if (orderType === 'music_creation') {
     // Handle music order payment
     const updatedOrders = await prisma.order.updateMany({
@@ -200,11 +203,3 @@ async function handlePaymentIntentCanceled(paymentIntent: Stripe.PaymentIntent) 
   console.log(`Payment canceled for customer ${customerId}`);
 }
 
-function calculateCreditsFromAmount(amount: number): number {
-  // Calculate credits based on BRL amounts
-  // R$99.90 = 1 credit, R$229.90 = 3 credits, R$399.90 = 5 credits
-  if (amount >= 399.90) return 5;
-  if (amount >= 229.90) return 3;
-  if (amount >= 99.90) return 1;
-  return Math.floor(amount / 99.90); // fallback calculation
-}
