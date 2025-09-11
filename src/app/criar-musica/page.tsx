@@ -160,7 +160,13 @@ export default function CreateMusic() {
   const onSubmit = async (data: FormData) => {
     try {
       if (credits < 1) {
-        logger.error('Insufficient credits', { email: (await supabase.auth.getUser()).data.user?.email });
+        const userEmail = (await supabase.auth.getUser()).data.user?.email || 'unknown';
+        logger.error('Insufficient credits', { 
+          email: userEmail,
+          currentCredits: credits,
+          requiredCredits: 1,
+          action: 'create_music_attempt'
+        });
         toast({ title: 'Erro', description: 'Você precisa de pelo menos 1 crédito para criar uma música.' });
         router.push('/comprar-creditos');
         return;
@@ -205,7 +211,14 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
       toast({ title: 'Sucesso', description: 'Música encomendada! Você será redirecionado.' });
       router.push('/dashboard');
     } catch (err) {
-      logger.error('Unexpected error on submit', { error: String(err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const userEmail = (await supabase.auth.getUser()).data.user?.email || 'unknown';
+      logger.error('Unexpected error on submit', { 
+        error: errorMessage,
+        email: userEmail,
+        formData: JSON.stringify(data),
+        action: 'create_music_submit'
+      });
       toast({ title: 'Erro', description: 'Erro inesperado. Tente novamente.' });
     }
   };

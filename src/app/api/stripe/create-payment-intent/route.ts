@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100), // Convert to cents
-      currency: 'usd',
+      currency: 'brl', // Using Brazilian Real since prices are in BRL
       metadata: {
         customerId,
         orderType,
@@ -56,9 +56,20 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error creating payment intent:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorType = error instanceof Error ? error.name : 'UnknownError';
+    
+    console.error('Error creating payment intent:', {
+      error: errorMessage,
+      errorType,
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
     return NextResponse.json(
-      { error: 'Failed to create payment intent' },
+      { 
+        error: 'Failed to create payment intent', 
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined 
+      },
       { status: 500 }
     );
   }

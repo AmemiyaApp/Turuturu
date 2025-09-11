@@ -17,6 +17,14 @@ interface EmailTemplateData {
   musicFileUrl?: string;
 }
 
+interface CreditPurchaseData {
+  customerName: string;
+  customerEmail: string;
+  creditsAdded: number;
+  packageName: string;
+  totalCredits: number;
+}
+
 class EmailService {
   private transporter: nodemailer.Transporter;
 
@@ -28,7 +36,7 @@ class EmailService {
       pass: process.env.SMTP_PASS || '',
     };
 
-    this.transporter = nodemailer.createTransporter({
+    this.transporter = nodemailer.createTransport({
       host: config.host,
       port: config.port,
       secure: config.port === 465,
@@ -117,6 +125,24 @@ class EmailService {
       return true;
     } catch (error) {
       console.error('Error sending admin notification email:', error);
+      return false;
+    }
+  }
+
+  async sendCreditPurchaseConfirmation(data: CreditPurchaseData): Promise<boolean> {
+    try {
+      const mailOptions = {
+        from: `"TuruTuru App" <${process.env.SMTP_USER}>`,
+        to: data.customerEmail,
+        subject: 'Compra de Créditos Confirmada - TuruTuru App',
+        html: this.getCreditPurchaseTemplate(data),
+      };
+
+      await this.transporter.sendMail(mailOptions);
+      console.log(`Credit purchase confirmation email sent to ${data.customerEmail}`);
+      return true;
+    } catch (error) {
+      console.error('Error sending credit purchase confirmation email:', error);
       return false;
     }
   }
@@ -337,6 +363,60 @@ class EmailService {
           <p style="text-align: center;">
             <a href="${process.env.NEXTAUTH_URL}/admin" class="button">Gerenciar Pedidos</a>
           </p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private getCreditPurchaseTemplate(data: CreditPurchaseData): string {
+    return `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Compra de Créditos Confirmada</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); color: white; text-align: center; padding: 30px; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .credit-info { background: white; padding: 25px; border-radius: 8px; margin: 20px 0; text-align: center; border: 2px solid #4caf50; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+          .button { display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; margin: 10px; font-size: 16px; }
+          .credits-display { font-size: 32px; color: #4caf50; font-weight: bold; margin: 15px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>🎉 Compra Confirmada!</h1>
+          <p>Seus créditos foram adicionados com sucesso</p>
+        </div>
+        
+        <div class="content">
+          <p>Olá, <strong>${data.customerName}!</strong></p>
+          
+          <p>Sua compra de créditos foi processada com sucesso! Agora você pode criar suas músicas personalizadas.</p>
+          
+          <div class="credit-info">
+            <h2>🎫 ${data.packageName}</h2>
+            <p><strong>Créditos Adicionados:</strong></p>
+            <div class="credits-display">+${data.creditsAdded} créditos</div>
+            <p><strong>Total de Créditos:</strong> ${data.totalCredits}</p>
+            
+            <p style="margin: 25px 0;">
+              <a href="${process.env.NEXTAUTH_URL}/criar-musica" class="button">🎵 Criar Minha Música</a>
+            </p>
+          </div>
+          
+          <p>Cada crédito permite a criação de uma música única e personalizada. Comece agora mesmo a criar memórias especiais!</p>
+          
+          <p>Obrigado por escolher a TuruTuru App!</p>
+        </div>
+        
+        <div class="footer">
+          <p>TuruTuru App - Músicas Personalizadas para Crianças</p>
+          <p>Este é um email automático, por favor não responda.</p>
         </div>
       </body>
       </html>

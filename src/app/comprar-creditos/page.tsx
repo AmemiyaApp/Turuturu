@@ -9,6 +9,7 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/lib/utils/useToast';
 import { Check, Star, Zap, CreditCard, Loader } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
@@ -45,7 +46,7 @@ export default function ComprarCreditosPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     async function checkAuth() {
@@ -70,22 +71,23 @@ export default function ComprarCreditosPage() {
     try {
       logger.info('Starting purchase process', { package: pkg.name, amount: pkg.amount });
 
-      // Create payment intent
-      const response = await fetch('/api/stripe/create-payment-intent', {
+      // Create Stripe Checkout session
+      const response = await fetch('/api/stripe/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           amount: pkg.amount,
+          credits: pkg.credits,
           customerId: user.id,
-          orderType: 'credit_purchase',
+          packageName: pkg.name,
         }),
       });
 
-      const { clientSecret, error } = await response.json();
-      if (error) {
-        throw new Error(error);
+      const result = await response.json();
+      if (!result.success || result.error) {
+        throw new Error(result.error || result.details || 'Failed to create checkout session');
       }
 
       // Redirect to Stripe Checkout
@@ -94,23 +96,29 @@ export default function ComprarCreditosPage() {
         throw new Error('Stripe não foi carregado');
       }
 
-      const { error: stripeError } = await stripe.confirmPayment({
-        clientSecret,
-        confirmParams: {
-          return_url: `${window.location.origin}/dashboard?payment=success`,
-        },
+      const { error: stripeError } = await stripe.redirectToCheckout({
+        sessionId: result.sessionId,
       });
 
       if (stripeError) {
-        throw new Error(stripeError.message);
+        throw new Error(stripeError.message || 'Erro ao redirecionar para pagamento');
       }
 
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('Purchase error:', error);
-      logger.error('Purchase failed', { error: String(error), package: pkg.name });
+      logger.error('Purchase failed', { 
+        error: errorMessage,
+        errorType: error instanceof Error ? error.name : 'Unknown',
+        package: pkg.name,
+        amount: pkg.amount,
+        userId: user?.id,
+        userEmail: user?.email,
+        action: 'credit_purchase_attempt'
+      });
       toast({ 
         title: 'Erro na Compra', 
-        description: 'Não foi possível processar o pagamento. Tente novamente.' 
+        description: `Ocorreu um erro de processamento: ${errorMessage}` 
       });
     } finally {
       setLoading(null);

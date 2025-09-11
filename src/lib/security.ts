@@ -170,7 +170,7 @@ export async function verifyUserSession(request: NextRequest): Promise<Validatio
       isAdmin: profile?.isAdmin || false,
     };
   } catch (error) {
-    logger.error('Session verification failed', { error });
+    logger.error('Session verification failed', { error: error as Error });
     return { user: null, isValid: false, isAdmin: false };
   }
 }
@@ -249,7 +249,7 @@ export function createSecureApiHandler(
           }
           // Re-create request with validated body
           (request as AuthenticatedRequest).validatedBody = body;
-        } catch (error) {
+        } catch {
           return new Response(
             JSON.stringify({ error: 'Invalid JSON' }),
             { 
@@ -270,7 +270,7 @@ export function createSecureApiHandler(
 
       return response;
     } catch (error) {
-      logger.error('API handler error', { error, url: request.url });
+      logger.error('API handler error', { error: error as Error, url: request.url });
       return new Response(
         JSON.stringify({ error: 'Internal server error' }),
         { 

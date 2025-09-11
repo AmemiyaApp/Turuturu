@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
+        
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
         break;
@@ -54,6 +58,45 @@ export async function POST(request: NextRequest) {
       { error: 'Webhook processing failed' },
       { status: 500 }
     );
+  }
+}
+
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
+  const { customerId, credits, packageName, orderType } = session.metadata || {};
+  
+  if (orderType === 'credit_purchase' && customerId && credits) {
+    // Add credits to customer
+    const creditsToAdd = parseInt(credits, 10);
+    
+    await prisma.profile.update({
+      where: { id: customerId },
+      data: {
+        credits: {
+          increment: creditsToAdd,
+        },
+      },
+    });
+
+    // Get customer details for email
+    const customer = await prisma.profile.findUnique({
+      where: { id: customerId },
+    });
+
+    if (customer) {
+      try {
+        await emailService.sendCreditPurchaseConfirmation({
+          customerName: customer.name || 'Cliente',
+          customerEmail: customer.email,
+          creditsAdded: creditsToAdd,
+          packageName: packageName || 'Pacote de Créditos',
+          totalCredits: customer.credits + creditsToAdd,
+        });
+      } catch (emailError) {
+        console.error('Failed to send credit purchase confirmation email:', emailError);
+      }
+    }
+
+    console.log(`Added ${creditsToAdd} credits to customer ${customerId} via checkout`);
   }
 }
 
@@ -158,7 +201,10 @@ async function handlePaymentIntentCanceled(paymentIntent: Stripe.PaymentIntent) 
 }
 
 function calculateCreditsFromAmount(amount: number): number {
-  // Define credit calculation logic
-  // Example: $1 = 10 credits
-  return Math.floor(amount * 10);
+  // Calculate credits based on BRL amounts
+  // R$99.90 = 1 credit, R$229.90 = 3 credits, R$399.90 = 5 credits
+  if (amount >= 399.90) return 5;
+  if (amount >= 229.90) return 3;
+  if (amount >= 99.90) return 1;
+  return Math.floor(amount / 99.90); // fallback calculation
 }
