@@ -8,10 +8,49 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ----------------------------------------------------
-// ENUMS
-// Definem estados fixos para o sistema.
-// ----------------------------------------------------
+/// Perfil de usuário, ligado à tabela `auth.users` do Supabase via `id`.
+/// RLS: Restringir acesso a `id = auth.uid()` para users; admins têm acesso total.
+model Profile {
+  id      String  @id @db.Uuid
+  email   String  @unique
+  name    String?
+  isAdmin Boolean @default(false)
+  credits Int     @default(0)
+  orders  Order[]
+}
+
+/// Pedido de música personalizada, associado a um cliente.
+/// RLS: Restringir `customerId = auth.uid()` para users; admins acessam todos.
+model Order {
+  id            String        @id @default(uuid()) @db.Uuid
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  updatedBy     String?       @db.Uuid
+  prompt        String
+  status        OrderStatus   @default(AWAITING_PAYMENT)
+  paymentStatus PaymentStatus @default(PENDING)
+  customerId    String        @db.Uuid
+  musicFiles    MusicFile[]
+  customer      Profile       @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+}
+
+/// Arquivo de música finalizado, associado a um pedido (1:N - múltiplos arquivos por pedido).
+/// RLS: Apenas admins podem criar/atualizar; clientes acessam via `Order`.
+model MusicFile {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now())
+  updatedBy String?  @db.Uuid
+  url       String
+  filename  String?
+  title     String?
+  lyrics    String?  @db.Text
+  orderId   String   @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
 
 /// Status do pedido em relação à produção da música.
 enum OrderStatus {
@@ -27,54 +66,4 @@ enum PaymentStatus {
   PENDING
   PAID
   FAILED
-}
-
-// ----------------------------------------------------
-// MODELS
-// Representam as tabelas do banco de dados.
-// ----------------------------------------------------
-
-/// Perfil de usuário, ligado à tabela `auth.users` do Supabase via `id`.
-/// RLS: Restringir acesso a `id = auth.uid()` para users; admins têm acesso total.
-model Profile {
-  id      String   @id @db.Uuid
-  email   String   @unique
-  name    String?
-  isAdmin Boolean  @default(false)
-  credits Int      @default(0) // Campo para créditos do usuário
-
-  orders  Order[]
-}
-
-/// Pedido de música personalizada, associado a um cliente.
-/// RLS: Restringir `customerId = auth.uid()` para users; admins acessam todos.
-model Order {
-  id            String       @id @default(uuid()) @db.Uuid
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  updatedBy     String?      @db.Uuid
-  prompt        String       @db.Text
-  status        OrderStatus  @default(AWAITING_PAYMENT)
-  paymentStatus PaymentStatus @default(PENDING)
-
-  customerId    String       @db.Uuid
-  customer      Profile      @relation(fields: [customerId], references: [id])
-
-  musicFile     MusicFile?
-
-  @@index([customerId])
-}
-
-/// Arquivo de música finalizado, associado a um pedido (1:1 para MVP).
-/// RLS: Apenas admins podem criar/atualizar; clientes acessam via `Order`.
-model MusicFile {
-  id        String   @id @default(uuid()) @db.Uuid
-  createdAt DateTime @default(now())
-  updatedBy String?  @db.Uuid
-  url       String
-
-  orderId   String   @unique @db.Uuid
-  order     Order    @relation(fields: [orderId], references: [id])
-
-  @@index([orderId])
 }

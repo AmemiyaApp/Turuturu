@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
     const orderId = formData.get('orderId') as string;
     const file = formData.get('file') as File;
     const updatedBy = formData.get('updatedBy') as string;
+    const filename = formData.get('filename') as string;
 
     // Validate required fields
     if (!orderId || !file || !updatedBy) {
@@ -59,8 +60,9 @@ export async function POST(request: NextRequest) {
     
     // Create unique filename
     const timestamp = Date.now();
-    const filename = `music_${orderId}_${timestamp}.${file.name.split('.').pop()}`;
-    const filePath = `./public/uploads/${filename}`;
+    const fileExtension = file.name.split('.').pop();
+    const uniqueFilename = `music_${orderId}_${timestamp}.${fileExtension}`;
+    const filePath = `./public/uploads/${uniqueFilename}`;
     
     // Ensure uploads directory exists
     const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
@@ -69,30 +71,33 @@ export async function POST(request: NextRequest) {
     }
 
     // Write file to disk
-    fs.writeFileSync(path.join(process.cwd(), 'public', 'uploads', filename), buffer);
+    fs.writeFileSync(path.join(process.cwd(), 'public', 'uploads', uniqueFilename), buffer);
 
-    // Create or update music file record
-    const musicFile = await prisma.musicFile.upsert({
-      where: { orderId },
-      update: {
-        url: `/uploads/${filename}`,
-        updatedBy,
-      },
-      create: {
+    // Create music file record (now supports multiple files per order)
+    const musicFile = await prisma.musicFile.create({
+      data: {
         orderId,
-        url: `/uploads/${filename}`,
+        url: `/uploads/${uniqueFilename}`,
+        filename: filename || file.name,
         updatedBy,
       },
     });
 
-    // Update order status to completed
-    const updatedOrder = await prisma.order.update({
+    // Update order status to IN_PRODUCTION if it was PENDING
+    if (order.status === 'PENDING') {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'IN_PRODUCTION',
+          updatedBy,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    // Get order with customer details for email notification
+    const updatedOrder = await prisma.order.findUnique({
       where: { id: orderId },
-      data: {
-        status: 'COMPLETED',
-        updatedBy,
-        updatedAt: new Date(),
-      },
       include: {
         customer: {
           select: {
@@ -100,28 +105,31 @@ export async function POST(request: NextRequest) {
             name: true,
           },
         },
+        musicFiles: true,
       },
     });
 
-    // Send music delivery email
-    try {
-      await emailService.sendMusicDelivery({
-        customerName: updatedOrder.customer.name || 'Cliente',
-        customerEmail: updatedOrder.customer.email,
-        orderId: updatedOrder.id,
-        prompt: updatedOrder.prompt,
-        createdAt: updatedOrder.createdAt.toISOString(),
-        musicFileUrl: `${process.env.NEXTAUTH_URL}/uploads/${filename}`,
-      });
-    } catch (emailError) {
-      console.error('Failed to send music delivery email:', emailError);
-      // Don't fail the upload if email fails
+    // Send music delivery email if this is the first file and order becomes completed
+    if (updatedOrder?.musicFiles.length === 1) {
+      try {
+        await emailService.sendMusicDelivery({
+          customerName: updatedOrder.customer.name || 'Cliente',
+          customerEmail: updatedOrder.customer.email,
+          orderId: updatedOrder.id,
+          prompt: updatedOrder.prompt,
+          createdAt: updatedOrder.createdAt.toISOString(),
+          musicFileUrl: `${process.env.NEXTAUTH_URL}/uploads/${uniqueFilename}`,
+        });
+      } catch (emailError) {
+        console.error('Failed to send music delivery email:', emailError);
+        // Don't fail the upload if email fails
+      }
     }
 
     return NextResponse.json({
       success: true,
       musicFile,
-      message: 'Music file uploaded successfully and order marked as completed',
+      message: 'Music file uploaded successfully',
     });
 
   } catch (error) {

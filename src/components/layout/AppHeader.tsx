@@ -17,19 +17,27 @@ export function AppHeader() {
     async function fetchCredits() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: profile, error } = await supabase
-            .from('Profile')
-            .select('credits')
-            .eq('id', user.id)
-            .single();
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (user && session?.access_token) {
+          // Use the API endpoint to fetch profile (bypasses RLS)
+          const response = await fetch('/api/auth/profile', {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+          });
 
-          if (error) {
-            logger.error('Failed to fetch credits for header', { error: error.message });
-            setCredits(0);
-          } else {
-            setCredits(profile.credits);
+          if (response.ok) {
+            const profileData = await response.json();
+            if (profileData.success) {
+              setCredits(profileData.profile.credits);
+              return;
+            }
           }
+          
+          // Fallback: set to 0 if API fails
+          logger.error('Failed to fetch credits for header', { userId: user.id });
+          setCredits(0);
         }
       } catch (err) {
         logger.error('Unexpected error fetching credits for header', { error: String(err) });

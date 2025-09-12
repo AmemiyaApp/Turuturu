@@ -7,12 +7,12 @@ const prisma = new PrismaClient();
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const body = await request.json();
     const { status, updatedBy } = body;
-    const orderId = params.id;
+    const { id: orderId } = await params;
 
     // Validate required fields
     if (!status || !updatedBy) {
@@ -79,10 +79,10 @@ export async function PUT(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const orderId = params.id;
+    const { id: orderId } = await params;
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -93,7 +93,16 @@ export async function GET(
             name: true,
           },
         },
-        musicFile: true,
+        musicFiles: {
+          select: {
+            id: true,
+            url: true,
+            filename: true,
+            title: true,
+            createdAt: true,
+            lyrics: true,
+          },
+        },
       },
     });
 

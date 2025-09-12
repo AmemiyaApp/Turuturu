@@ -1,14 +1,14 @@
 // src\app\comprar-creditos\page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
 import { supabase } from '@/lib/supabase/client';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/lib/utils/useToast';
-import { Check, Star, Zap, CreditCard, Loader, RefreshCw } from 'lucide-react';
+import { Check, Star, Zap, CreditCard, Loader } from 'lucide-react';
 import { User } from '@supabase/supabase-js';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
@@ -35,48 +35,65 @@ interface CreditPackage {
   };
 }
 
-// Default packages for loading state
-const defaultPackages: CreditPackage[] = [
+// Default packages with fixed pricing
+const creditPackages: CreditPackage[] = [
   {
-    productId: '',
-    priceId: '',
+    productId: 'prod_T1J900XxWttF8k',
+    priceId: 'price_T1J900XxWttF8k',
     name: '1 Crédito',
     description: '1 música 100% personalizada',
     credits: 1,
-    amount: 9990,
+    amount: 3490, // R$ 34,90 in cents
     currency: 'brl',
-    formattedPrice: 'R$ 99,90',
+    formattedPrice: 'R$ 34,90',
   },
   {
-    productId: '',
-    priceId: '',
+    productId: 'prod_T1JAglJxaz4mD8',
+    priceId: 'price_T1JAglJxaz4mD8',
+    name: '3 Créditos',
+    description: '3 músicas personalizadas com desconto',
+    credits: 3,
+    amount: 8990, // R$ 89,90 in cents
+    currency: 'brl',
+    formattedPrice: 'R$ 89,90',
+    savings: {
+      amount: 1480, // R$ 14,80 savings (104,70 - 89,90)
+      percentage: 14,
+      formattedSavings: 'R$ 14,80',
+      originalPrice: 'R$ 104,70', // 3 * 34,90
+    },
+  },
+  {
+    productId: 'prod_T1JBkr7OhvkFzQ',
+    priceId: 'price_T1JBkr7OhvkFzQ',
     name: '5 Créditos',
-    description: '5 músicas personalizadas com desconto',
+    description: '5 músicas personalizadas - melhor valor',
     credits: 5,
-    amount: 39990,
+    amount: 12990, // R$ 129,90 in cents
     currency: 'brl',
-    formattedPrice: 'R$ 399,90',
-  },
-  {
-    productId: '',
-    priceId: '',
-    name: '10 Créditos',
-    description: '10 músicas personalizadas - melhor valor',
-    credits: 10,
-    amount: 69990,
-    currency: 'brl',
-    formattedPrice: 'R$ 699,90',
+    formattedPrice: 'R$ 129,90',
+    savings: {
+      amount: 4460, // R$ 44,60 savings (174,50 - 129,90)
+      percentage: 26,
+      formattedSavings: 'R$ 44,60',
+      originalPrice: 'R$ 174,50', // 5 * 34,90
+    },
   },
 ];
 
 export default function ComprarCreditosPage() {
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [creditPackages, setCreditPackages] = useState<CreditPackage[]>(defaultPackages);
-  const [loadingPrices, setLoadingPrices] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [orderDetails, setOrderDetails] = useState<{
+    id: string;
+    prompt: string;
+    createdAt: string;
+    status: string;
+  } | null>(null);
 
   useEffect(() => {
     async function checkAuth() {
@@ -87,83 +104,33 @@ export default function ComprarCreditosPage() {
       }
       setUser(user);
       
-      // Check for cached pricing first
-      const cached = localStorage.getItem('turuturu-pricing');
-      if (cached) {
+      // Check if there's a pending order
+      const orderId = searchParams.get('orderId');
+      if (orderId) {
+        setPendingOrderId(orderId);
+        // Optionally fetch order details
         try {
-          const cachedData = JSON.parse(cached);
-          const cacheAge = Date.now() - new Date(cachedData.cachedAt).getTime();
-          
-          // Use cache if less than 5 minutes old
-          if (cacheAge < 300000) {
-            setCreditPackages(cachedData.packages);
-            setLastUpdated(cachedData.lastUpdated);
-            setLoadingPrices(false);
-            return; // Don't fetch if cache is fresh
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const response = await fetch(`/api/orders/${orderId}`, {
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+            });
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success) {
+                setOrderDetails(result.order);
+              }
+            }
           }
-        } catch (e) {
-          // Invalid cache, continue with fetch
-          console.warn('Invalid pricing cache:', e);
+        } catch (error) {
+          console.log('Could not fetch order details:', error);
         }
       }
-      
-      // Fetch fresh pricing
-      fetchPricing();
     }
     checkAuth();
-  }, [router, fetchPricing]);
-
-  const fetchPricing = useCallback(async () => {
-    setLoadingPrices(true);
-    try {
-      const response = await fetch('/api/stripe/pricing', {
-        // Cache for 5 minutes to avoid unnecessary requests
-        next: { revalidate: 300 }
-      });
-      const data = await response.json();
-      
-      if (data.success && data.packages) {
-        setCreditPackages(data.packages);
-        setLastUpdated(data.lastUpdated);
-        
-        // Cache in localStorage for faster loading on next visit
-        localStorage.setItem('turuturu-pricing', JSON.stringify({
-          packages: data.packages,
-          lastUpdated: data.lastUpdated,
-          cachedAt: new Date().toISOString()
-        }));
-      } else {
-        throw new Error(data.error || 'Failed to fetch pricing');
-      }
-    } catch (error) {
-      console.error('Error fetching pricing:', error);
-      
-      // Try to load from cache if fetch fails
-      const cached = localStorage.getItem('turuturu-pricing');
-      if (cached) {
-        const cachedData = JSON.parse(cached);
-        const cacheAge = Date.now() - new Date(cachedData.cachedAt).getTime();
-        
-        // Use cache if less than 1 hour old
-        if (cacheAge < 3600000) {
-          setCreditPackages(cachedData.packages);
-          setLastUpdated(cachedData.lastUpdated);
-          toast({
-            title: 'Usando preços em cache',
-            description: 'Conecte-se à internet para atualizar os preços.',
-          });
-          return;
-        }
-      }
-      
-      toast({
-        title: 'Erro ao carregar preços',
-        description: 'Usando preços padrão. Tente recarregar a página.',
-      });
-    } finally {
-      setLoadingPrices(false);
-    }
-  }, [toast]);
+  }, [router, searchParams]);
 
 
 
@@ -174,23 +141,18 @@ export default function ComprarCreditosPage() {
       return;
     }
 
-    if (!pkg.priceId) {
-      toast({ title: 'Erro', description: 'Preço não disponível. Tente recarregar a página.' });
-      return;
-    }
-
     setLoading(pkg.name);
     try {
       logger.info('Starting purchase process', { package: pkg.name, amount: pkg.amount / 100 });
 
-      // Create Stripe Checkout session with price ID
+      // Create Stripe Checkout session with fixed amount
       const response = await fetch('/api/stripe/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          priceId: pkg.priceId,
+          amount: pkg.amount / 100, // Convert cents to reais
           credits: pkg.credits,
           customerId: user.id,
           packageName: pkg.name,
@@ -241,31 +203,47 @@ export default function ComprarCreditosPage() {
     <div className="min-h-screen bg-gray-50">
       <AppHeader />
       <main className="container mx-auto px-4 py-12">
+        {/* Show pending order notification */}
+        {pendingOrderId && (
+          <div className="max-w-3xl mx-auto mb-8 p-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-blue-800">
+                  Pedido Salvo!
+                </h3>
+                <div className="mt-1 text-sm text-blue-700">
+                  <p>
+                    Seu pedido de música foi salvo com sucesso (ID: {pendingOrderId.slice(-8)}). 
+                    Adquira créditos abaixo para que possamos começar a produção.
+                  </p>
+                  {orderDetails && (
+                    <p className="mt-2 text-xs bg-white/70 p-2 rounded">
+                      <strong>Resumo:</strong> {orderDetails.prompt.substring(0, 100)}...
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div className="text-center mb-16 max-w-3xl mx-auto">
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
             Adquira mais Créditos
           </h1>
-          <p className="text-lg text-gray-600 mb-4">
+          <p className="text-lg text-gray-600">
             Cada crédito permite a criação de uma música personalizada e inesquecível. Escolha o pacote ideal para sua família!
           </p>
-          {lastUpdated && (
-            <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-              <RefreshCw className="w-4 h-4" />
-              Preços atualizados em tempo real via Stripe
-              <button
-                onClick={fetchPricing}
-                className="ml-2 text-blue-500 hover:text-blue-700 underline"
-                disabled={loadingPrices}
-              >
-                {loadingPrices ? 'Carregando...' : 'Atualizar'}
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="grid md:grid-cols-3 gap-8 items-center">
           {creditPackages.map((pkg, index) => {
-            const isPopular = pkg.credits === 5; // Middle package is most popular
+            const isPopular = pkg.credits === 3; // Middle package is most popular
             const features = [
               `${pkg.credits} música${pkg.credits > 1 ? 's' : ''} 100% personalizada${pkg.credits > 1 ? 's' : ''}`,
               'Entrega em até 48h',
@@ -276,11 +254,11 @@ export default function ComprarCreditosPage() {
               features.push(`Economia de ${pkg.savings.percentage}%`);
             }
             
-            if (pkg.credits >= 5) {
+            if (pkg.credits >= 3) {
               features.push('Suporte prioritário');
             }
             
-            if (pkg.credits === 10) {
+            if (pkg.credits === 5) {
               features.push('Ideal para presentear');
             }
 
@@ -303,14 +281,7 @@ export default function ComprarCreditosPage() {
                     <p className="text-gray-400 line-through">{pkg.savings.originalPrice}</p>
                   )}
                   <p className="text-4xl font-bold text-gray-900 my-2">
-                    {loadingPrices ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <Loader className="w-6 h-6 animate-spin" />
-                        Carregando...
-                      </span>
-                    ) : (
-                      pkg.formattedPrice
-                    )}
+                    {pkg.formattedPrice}
                   </p>
                   {pkg.savings && (
                     <p className="text-sm font-medium text-green-600 flex items-center justify-center gap-1">
@@ -328,18 +299,13 @@ export default function ComprarCreditosPage() {
                 </ul>
                 <button
                   onClick={() => handlePurchase(pkg)}
-                  disabled={loading === pkg.name || loadingPrices || !pkg.priceId}
+                  disabled={loading === pkg.name}
                   className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loading === pkg.name ? (
                     <>
                       <Loader className="w-4 h-4 animate-spin" />
                       Processando...
-                    </>
-                  ) : loadingPrices ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      Carregando preços...
                     </>
                   ) : (
                     <>

@@ -46,32 +46,32 @@ export async function POST(request: NextRequest) {
 
     // Check if customer has sufficient credits (assuming 1 credit per music creation)
     const requiredCredits = 1;
-    if (customer.credits < requiredCredits) {
-      return NextResponse.json(
-        { error: 'Insufficient credits. Please purchase more credits.' },
-        { status: 400 }
-      );
-    }
+    const hasCredits = customer.credits >= requiredCredits;
 
-    // Create the order
+    // Always create the order, but set status based on credit availability
     const order = await prisma.order.create({
       data: {
         prompt: sanitizedPrompt,
         customerId,
-        status: 'PENDING',
-        paymentStatus: 'PAID', // Using credits, so payment is already handled
+        status: hasCredits ? 'PENDING' : 'AWAITING_PAYMENT',
+        paymentStatus: hasCredits ? 'PAID' : 'PENDING',
       },
     });
 
-    // Deduct credits from customer
-    await prisma.profile.update({
-      where: { id: customerId },
-      data: {
-        credits: {
-          decrement: requiredCredits,
+    let remainingCredits = customer.credits;
+    
+    // Only deduct credits if customer has them
+    if (hasCredits) {
+      await prisma.profile.update({
+        where: { id: customerId },
+        data: {
+          credits: {
+            decrement: requiredCredits,
+          },
         },
-      },
-    });
+      });
+      remainingCredits = customer.credits - requiredCredits;
+    }
 
     // Send order confirmation email
     try {
@@ -106,9 +106,11 @@ export async function POST(request: NextRequest) {
       order: {
         id: order.id,
         status: order.status,
+        paymentStatus: order.paymentStatus,
         createdAt: order.createdAt,
       },
-      remainingCredits: customer.credits - requiredCredits,
+      remainingCredits,
+      needsPayment: !hasCredits,
     });
 
   } catch (error) {
@@ -141,7 +143,7 @@ export async function GET(request: NextRequest) {
                   name: true,
                 },
               },
-              musicFile: true,
+              musicFiles: true,
             },
             orderBy: {
               createdAt: 'desc',
@@ -158,7 +160,7 @@ export async function GET(request: NextRequest) {
           return await prisma.order.findMany({
             where: { customerId },
             include: {
-              musicFile: true,
+              musicFiles: true,
             },
             orderBy: {
               createdAt: 'desc',

@@ -23,8 +23,38 @@
             return;
           }
           if (data.session) {
-            logger.info('Callback session successful', { user: data.session.user.email });
-            toast({ title: 'Sucesso', description: 'Login realizado com sucesso!' });
+            const user = data.session.user;
+            
+            // Use the API endpoint to create/ensure profile exists (bypasses RLS)
+            try {
+              const response = await fetch('/api/auth/profile', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ user }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+              }
+
+              const profileData = await response.json();
+              
+              if (!profileData.success) {
+                throw new Error(profileData.error || 'Failed to create profile');
+              }
+
+              logger.info('Profile ensured successfully', { userId: user.id, email: user.email });
+              toast({ title: 'Bem-vindo!', description: `Olá, ${profileData.profile.name || 'usuário'}!` });
+            } catch (profileError) {
+              logger.error('Failed to ensure profile via API', { error: String(profileError), userId: user.id });
+              // Don't block login for profile creation issues - continue anyway
+              logger.info('Continuing login despite profile error', { userId: user.id });
+              toast({ title: 'Aviso', description: 'Login realizado, mas houve um problema com o perfil.' });
+            }
+
+            logger.info('Callback session successful', { user: user.email });
             router.push('/dashboard');
           } else {
             logger.error('No session found in callback', { params: searchParams.toString() });

@@ -6,12 +6,9 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { logger } from '@/lib/logger';
 import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import {
   Clock,
-  Download,
   Music,
-  Upload,
   User,
   Mail,
   Calendar,
@@ -19,7 +16,6 @@ import {
   CheckCircle,
   AlertCircle,
   XCircle,
-  Play,
 } from 'lucide-react';
 import { AppHeader } from '@/components/layout/AppHeader';
 
@@ -51,33 +47,27 @@ interface Profile {
   isAdmin: boolean;
 }
 
-const getStatusInfo = (status: OrderStatus) => {
-  switch (status) {
+const getUnifiedStatusInfo = (orderStatus: OrderStatus, paymentStatus: PaymentStatus) => {
+  // If payment is not completed, show payment status as priority
+  if (paymentStatus === 'PENDING' && orderStatus === 'AWAITING_PAYMENT') {
+    return { text: 'Aguardando Pagamento', color: 'bg-orange-100 text-orange-800', icon: <AlertCircle className="w-4 h-4" /> };
+  }
+  if (paymentStatus === 'FAILED') {
+    return { text: 'Pagamento Falhou', color: 'bg-red-100 text-red-800', icon: <XCircle className="w-4 h-4" /> };
+  }
+  
+  // If payment is completed, show order production status
+  switch (orderStatus) {
     case 'COMPLETED':
       return { text: 'Concluída', color: 'bg-green-100 text-green-800', icon: <CheckCircle className="w-4 h-4" /> };
     case 'IN_PRODUCTION':
       return { text: 'Em Produção', color: 'bg-blue-100 text-blue-800', icon: <Music className="w-4 h-4" /> };
     case 'PENDING':
       return { text: 'Pendente', color: 'bg-yellow-100 text-yellow-800', icon: <Clock className="w-4 h-4" /> };
-    case 'AWAITING_PAYMENT':
-      return { text: 'Aguardando Pagamento', color: 'bg-orange-100 text-orange-800', icon: <AlertCircle className="w-4 h-4" /> };
     case 'CANCELED':
       return { text: 'Cancelada', color: 'bg-red-100 text-red-800', icon: <XCircle className="w-4 h-4" /> };
     default:
-      return { text: status, color: 'bg-gray-100 text-gray-800', icon: <Clock className="w-4 h-4" /> };
-  }
-};
-
-const getPaymentStatusInfo = (status: PaymentStatus) => {
-  switch (status) {
-    case 'PAID':
-      return { text: 'Pago', color: 'bg-green-100 text-green-800' };
-    case 'PENDING':
-      return { text: 'Pendente', color: 'bg-yellow-100 text-yellow-800' };
-    case 'FAILED':
-      return { text: 'Falhou', color: 'bg-red-100 text-red-800' };
-    default:
-      return { text: status, color: 'bg-gray-100 text-gray-800' };
+      return { text: 'Processando', color: 'bg-gray-100 text-gray-800', icon: <Clock className="w-4 h-4" /> };
   }
 };
 
@@ -85,9 +75,6 @@ export default function AdminDashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orders, setOrders] = useState<OrderWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState<OrderWithDetails | null>(null);
-  const [uploadingFile, setUploadingFile] = useState<string | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -99,20 +86,36 @@ export default function AdminDashboard() {
           return;
         }
 
-        // Check if user is admin
-        const profileResponse = await supabase
-          .from('Profile')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+        // Check if user is admin using API (bypasses RLS)
+        const { data: { session } } = await supabase.auth.getSession();
+        let profileData = null;
+        
+        if (session?.access_token) {
+          try {
+            const profileResponse = await fetch('/api/auth/profile', {
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+            });
 
-        if (profileResponse.error || !profileResponse.data?.isAdmin) {
-          logger.error('Unauthorized admin access attempt', { userId: user.id });
+            if (profileResponse.ok) {
+              const result = await profileResponse.json();
+              if (result.success) {
+                profileData = result.profile;
+              }
+            }
+          } catch (profileError) {
+            console.error('Failed to fetch profile via API:', profileError);
+          }
+        }
+
+        if (!profileData?.isAdmin) {
+          logger.error('Unauthorized admin access attempt', { userId: user.id, isAdmin: profileData?.isAdmin || false });
           router.push('/dashboard?error=Unauthorized');
           return;
         }
 
-        setProfile(profileResponse.data);
+        setProfile(profileData);
 
         // Fetch all orders with customer details
         const ordersResponse = await fetch('/api/orders?isAdmin=true');
@@ -136,77 +139,7 @@ export default function AdminDashboard() {
     fetchAdminData();
   }, [router]);
 
-  const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
-    if (!profile) return;
 
-    setUpdatingStatus(orderId);
-    try {
-      const response = await fetch(`/api/orders/${orderId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: newStatus,
-          updatedBy: profile.id,
-        }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        // Update local state
-        setOrders(prev => prev.map(order => 
-          order.id === orderId 
-            ? { ...order, status: newStatus, updatedAt: new Date().toISOString() }
-            : order
-        ));
-        logger.info('Order status updated', { orderId, newStatus });
-      } else {
-        throw new Error(data.error || 'Failed to update order status');
-      }
-    } catch (error) {
-      logger.error('Error updating order status', { error, orderId, newStatus });
-      alert('Erro ao atualizar status do pedido');
-    } finally {
-      setUpdatingStatus(null);
-    }
-  };
-
-  const uploadMusicFile = async (orderId: string, file: File) => {
-    if (!profile) return;
-
-    setUploadingFile(orderId);
-    try {
-      const formData = new FormData();
-      formData.append('orderId', orderId);
-      formData.append('file', file);
-      formData.append('updatedBy', profile.id);
-
-      const response = await fetch('/api/music/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        // Refresh orders
-        const ordersResponse = await fetch('/api/orders?isAdmin=true');
-        const ordersData = await ordersResponse.json();
-        if (ordersData.success) {
-          setOrders(ordersData.orders);
-        }
-        logger.info('Music file uploaded', { orderId });
-        alert('Arquivo de música enviado com sucesso!');
-      } else {
-        throw new Error(data.error || 'Failed to upload music file');
-      }
-    } catch (error) {
-      logger.error('Error uploading music file', { error, orderId });
-      alert('Erro ao enviar arquivo de música');
-    } finally {
-      setUploadingFile(null);
-    }
-  };
 
   if (loading) {
     return (
@@ -303,23 +236,18 @@ export default function AdminDashboard() {
                     Data
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Pagamento
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ações
-                  </th>
+
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {orders.map((order) => {
-                  const statusInfo = getStatusInfo(order.status);
-                  const paymentInfo = getPaymentStatusInfo(order.paymentStatus);
+                  const unifiedStatus = getUnifiedStatusInfo(order.status, order.paymentStatus);
                   
                   return (
-                    <tr key={order.id} className="hover:bg-gray-50">
+                    <tr key={order.id} className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => router.push(`/order/${order.id}`)}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <User className="w-5 h-5 text-gray-400 mr-2" />
@@ -339,6 +267,9 @@ export default function AdminDashboard() {
                         <div className="text-sm text-gray-900 max-w-xs truncate" title={order.prompt}>
                           {order.prompt}
                         </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          Clique para ver detalhes
+                        </div>
                       </td>
                       
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -349,67 +280,10 @@ export default function AdminDashboard() {
                       </td>
                       
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${paymentInfo.color}`}>
-                          {paymentInfo.text}
+                        <span className={`px-3 py-1 text-xs font-medium rounded-full flex items-center gap-1.5 w-fit ${unifiedStatus.color}`}>
+                          {unifiedStatus.icon}
+                          {unifiedStatus.text}
                         </span>
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col gap-2">
-                          <span className={`px-3 py-1 text-xs font-medium rounded-full flex items-center gap-1.5 w-fit ${statusInfo.color}`}>
-                            {statusInfo.icon}
-                            {statusInfo.text}
-                          </span>
-                          
-                          {order.status !== 'COMPLETED' && order.status !== 'CANCELED' && (
-                            <select
-                              value={order.status}
-                              onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
-                              disabled={updatingStatus === order.id}
-                              className="text-xs border rounded px-2 py-1 bg-white"
-                            >
-                              <option value="PENDING">Pendente</option>
-                              <option value="IN_PRODUCTION">Em Produção</option>
-                              <option value="COMPLETED">Concluída</option>
-                              <option value="CANCELED">Cancelada</option>
-                            </select>
-                          )}
-                        </div>
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex flex-col gap-2">
-                          {order.status === 'IN_PRODUCTION' && !order.musicFile && (
-                            <label className="bg-blue-500 text-white hover:bg-blue-600 px-3 py-1 rounded text-xs font-medium cursor-pointer flex items-center gap-1">
-                              <Upload className="w-3 h-3" />
-                              {uploadingFile === order.id ? 'Enviando...' : 'Enviar Música'}
-                              <input
-                                type="file"
-                                accept="audio/*"
-                                className="hidden"
-                                disabled={uploadingFile === order.id}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    uploadMusicFile(order.id, file);
-                                  }
-                                }}
-                              />
-                            </label>
-                          )}
-                          
-                          {order.musicFile && (
-                            <a
-                              href={order.musicFile.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="bg-green-500 text-white hover:bg-green-600 px-3 py-1 rounded text-xs font-medium flex items-center gap-1"
-                            >
-                              <Play className="w-3 h-3" />
-                              Ouvir
-                            </a>
-                          )}
-                        </div>
                       </td>
                     </tr>
                   );

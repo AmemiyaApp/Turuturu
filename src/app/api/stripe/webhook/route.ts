@@ -77,6 +77,48 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       },
     });
 
+    // Convert awaiting payment orders to pending if customer now has enough credits
+    const awaitingPaymentOrders = await prisma.order.findMany({
+      where: {
+        customerId,
+        status: 'AWAITING_PAYMENT',
+        paymentStatus: 'PENDING',
+      },
+      orderBy: {
+        createdAt: 'asc', // Process oldest orders first
+      },
+    });
+
+    // Update orders to pending status (assuming 1 credit per order)
+    const ordersToUpdate = awaitingPaymentOrders.slice(0, creditsToAdd);
+    
+    if (ordersToUpdate.length > 0) {
+      // Update orders to pending
+      await prisma.order.updateMany({
+        where: {
+          id: {
+            in: ordersToUpdate.map(order => order.id),
+          },
+        },
+        data: {
+          status: 'PENDING',
+          paymentStatus: 'PAID',
+        },
+      });
+
+      // Deduct credits for the processed orders
+      await prisma.profile.update({
+        where: { id: customerId },
+        data: {
+          credits: {
+            decrement: ordersToUpdate.length,
+          },
+        },
+      });
+
+      console.log(`Converted ${ordersToUpdate.length} orders from AWAITING_PAYMENT to PENDING for customer ${customerId}`);
+    }
+
     // Get customer details for email
     const customer = await prisma.profile.findUnique({
       where: { id: customerId },
@@ -89,8 +131,25 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
           customerEmail: customer.email,
           creditsAdded: creditsToAdd,
           packageName: packageName || 'Pacote de Créditos',
-          totalCredits: customer.credits + creditsToAdd,
+          totalCredits: customer.credits, // Already updated above
         });
+
+        // Send admin notification for converted orders
+        if (ordersToUpdate.length > 0) {
+          for (const order of ordersToUpdate) {
+            try {
+              await emailService.sendAdminNotification({
+                customerName: customer.name || 'Cliente',
+                customerEmail: customer.email,
+                orderId: order.id,
+                prompt: order.prompt,
+                createdAt: order.createdAt.toISOString(),
+              }, 'payment_confirmed');
+            } catch (emailError) {
+              console.error('Failed to send admin notification for converted order:', emailError);
+            }
+          }
+        }
       } catch (emailError) {
         console.error('Failed to send credit purchase confirmation email:', emailError);
       }
@@ -104,8 +163,16 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
   const { customerId, orderType, credits: creditsMetadata } = paymentIntent.metadata;
   
   if (orderType === 'credit_purchase') {
-    // Handle credit purchase - get credits from metadata
-    const credits = parseInt(creditsMetadata || '0', 10);
+    // Handle credit purchase - try metadata first, fallback to amount calculation
+    let credits = 0;
+    
+    if (creditsMetadata) {
+      credits = parseInt(creditsMetadata, 10);
+    } else {
+      // Fallback to amount-based calculation for fixed pricing
+      const amount = paymentIntent.amount / 100; // Convert from cents
+      credits = calculateCreditsFromAmount(amount);
+    }
     
     if (credits > 0) {
       await prisma.profile.update({
@@ -117,9 +184,9 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
         },
       });
 
-      console.log(`Added ${credits} credits to customer ${customerId} from product metadata`);
+      console.log(`Added ${credits} credits to customer ${customerId} (${creditsMetadata ? 'from metadata' : 'calculated from amount'})`);
     } else {
-      console.error(`Invalid credits metadata for customer ${customerId}:`, creditsMetadata);
+      console.error(`Invalid credits for customer ${customerId}:`, { creditsMetadata, amount: paymentIntent.amount / 100 });
     }
   } else if (orderType === 'music_creation') {
     // Handle music order payment
@@ -201,5 +268,14 @@ async function handlePaymentIntentCanceled(paymentIntent: Stripe.PaymentIntent) 
   });
 
   console.log(`Payment canceled for customer ${customerId}`);
+}
+
+function calculateCreditsFromAmount(amount: number): number {
+  // Calculate credits based on new fixed BRL amounts
+  // R$34.90 = 1 credit, R$149.90 = 5 credits, R$297.00 = 10 credits
+  if (amount >= 297.00) return 10;
+  if (amount >= 149.90) return 5;
+  if (amount >= 34.90) return 1;
+  return Math.floor(amount / 34.90); // fallback calculation
 }
 

@@ -7,19 +7,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
-import { logger } from '@/lib/logger';
 import { useToast } from '@/lib/utils/useToast';
 import { Music, Heart, Sparkles, Volume2, Star, Ticket } from 'lucide-react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Footer } from '@/components/landing/Footer';
 import { Database } from '@/types/supabase';
-import { PostgrestError } from '@supabase/supabase-js';
-
-// Tipos locais para garantir compatibilidade
-type ProfileRow = Database['public']['Tables']['Profile']['Row'];
-type ProfileInsert = Database['public']['Tables']['Profile']['Insert'];
-type ProfileUpdate = Database['public']['Tables']['Profile']['Update'];
-type OrderInsert = Database['public']['Tables']['Order']['Insert'];
 
 const formSchema = z.object({
   childName: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
@@ -62,6 +54,7 @@ export default function CreateMusic() {
   const [selectedInstruments, setSelectedInstruments] = useState<string[]>([]);
   const [selectedEffects, setSelectedEffects] = useState<string[]>([]);
   const [credits, setCredits] = useState<number>(0);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -79,65 +72,87 @@ export default function CreateMusic() {
   useEffect(() => {
     async function checkUserAndCredits() {
       try {
+        // Check authentication
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          logger.error('User not authenticated, redirecting to auth.');
           toast({ title: 'Acesso Negado', description: 'Você precisa estar logado.' });
           router.push('/auth?error=Unauthorized');
           return;
         }
 
-        // LOG 1: Confirmar qual usuário está logado
-        logger.info('--- DEBUG: Buscando perfil para o usuário ---', { id: user.id, email: user.email });
-
-        const { data: profile, error: profileError } = await supabase
-          .from('Profile')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        // LOG 2: EXTREMAMENTE IMPORTANTE - O que o Supabase retornou?
-        logger.info('--- DEBUG: Resultado da consulta ao perfil ---', {
-          profileData: JSON.stringify(profile, null, 2),
-          profileError: JSON.stringify(profileError, null, 2),
-        });
-
-        if (profileError && profileError.code !== 'PGRST116') {
-          logger.error('--- DEBUG: Erro na consulta ao perfil (não é "não encontrado") ---', { code: profileError.code, message: profileError.message });
-          toast({ title: 'Erro de Perfil', description: 'Não foi possível carregar seus dados.' });
-          setCredits(0);
+        // Get session token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          toast({ title: 'Erro de Sessão', description: 'Sessão inválida. Faça login novamente.' });
+          router.push('/auth');
           return;
         }
 
-        if (!profile) {
-          logger.info('--- DEBUG: Condição !profile VERDADEIRA. Entrando no bloco de criação de perfil. ---');
-          
-          // (Lógica de criação de perfil...)
-          const { error: insertError } = await supabase.from('Profile').insert({
-            id: user.id,
-            email: user.email || '',
-            name: user.user_metadata?.name || user.email || '',
+        // Try to get profile via API
+        let profileData = null;
+        try {
+          const response = await fetch('/api/auth/profile', {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+            },
           });
 
-          if (insertError) {
-            logger.error('--- DEBUG: Falha ao INSERIR novo perfil ---', { error: insertError });
-            toast({ title: 'Erro Crítico', description: 'Falha ao criar seu perfil.' });
-            setCredits(0);
-            return;
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+              profileData = result.profile;
+              console.log('Profile loaded successfully, credits:', profileData.credits);
+              setCredits(profileData.credits || 0);
+              return;
+            } else {
+              console.log('Profile API returned unsuccessful response:', result);
+            }
+          } else {
+            console.log('Profile API response not ok:', response.status, response.statusText);
           }
-          
-          logger.info('--- DEBUG: Novo perfil criado. Definindo créditos para 0. ---');
-          setCredits(0);
-        } else {
-          logger.info('--- DEBUG: Condição !profile FALSA. Entrando no bloco de perfil existente. ---', { credits: profile.credits });
-          setCredits(profile.credits);
+        } catch (error) {
+          // Log error but continue to try creating profile
+          console.warn('Failed to fetch profile:', error);
         }
-      } catch (err) {
-        logger.error('--- DEBUG: Ocorreu um erro inesperado no bloco try/catch ---', { error: String(err) });
+
+        // If profile fetch failed, try to create it
+        try {
+          console.log('Profile not found, attempting to create...');
+          const createResponse = await fetch('/api/auth/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ user }),
+          });
+
+          if (createResponse.ok) {
+            const result = await createResponse.json();
+            if (result.success) {
+              console.log('Profile created successfully, credits:', result.profile.credits);
+              setCredits(result.profile.credits || 0);
+              return;
+            } else {
+              console.log('Profile creation returned unsuccessful response:', result);
+            }
+          } else {
+            console.log('Profile creation API response not ok:', createResponse.status, createResponse.statusText);
+          }
+        } catch (error) {
+          console.warn('Failed to create profile:', error);
+        }
+
+        // Fallback: set credits to 0
+        console.log('All profile operations failed, setting credits to 0');
+        setCredits(0);
+        
+      } catch (error) {
+        console.error('Error in checkUserAndCredits:', error);
         toast({ title: 'Erro Inesperado', description: 'Ocorreu um erro. Tente recarregar a página.' });
         setCredits(0);
       }
     }
+    
     checkUserAndCredits();
   }, [router, toast]);
 
@@ -158,23 +173,20 @@ export default function CreateMusic() {
   };
 
   const onSubmit = async (data: FormData) => {
-    try {
-      if (credits < 1) {
-        const userEmail = (await supabase.auth.getUser()).data.user?.email || 'unknown';
-        logger.error('Insufficient credits', { 
-          email: userEmail,
-          currentCredits: credits,
-          requiredCredits: 1,
-          action: 'create_music_attempt'
-        });
-        toast({ title: 'Erro', description: 'Você precisa de pelo menos 1 crédito para criar uma música.' });
-        router.push('/comprar-creditos');
-        return;
-      }
+    // Prevent multiple submissions
+    if (isSubmitting) {
+      console.log('Form already submitting, ignoring duplicate click');
+      return;
+    }
 
+    try {
+      setIsSubmitting(true);
+      
+      // Debug: Log current credits value
+      console.log('Current credits before submission:', credits);
+      
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
-        logger.error('User not authenticated on submit', { error: userError?.message });
         toast({ title: 'Erro', description: 'Você precisa estar logado.' });
         router.push('/auth');
         return;
@@ -188,7 +200,7 @@ Estilo: ${data.musicStyle}
 Idade: ${data.childAge}
 Observação: ${data.additionalInfo || 'nenhuma'}`;
 
-      // Use the new API endpoint
+      // Always create order via API (regardless of credits)
       const response = await fetch('/api/orders', {
         method: 'POST',
         headers: {
@@ -206,20 +218,30 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
         throw new Error(result.error || 'Failed to create order');
       }
 
+      // Update credits
       setCredits(result.remainingCredits);
-      logger.info('Order created successfully via API', { email: user.email, orderId: result.order.id });
-      toast({ title: 'Sucesso', description: 'Música encomendada! Você será redirecionado.' });
-      router.push('/dashboard');
+      
+      // Check if payment is needed
+      if (result.needsPayment) {
+        toast({ 
+          title: 'Pedido Salvo!', 
+          description: 'Seu pedido foi salvo. Você será redirecionado para completar o pagamento.' 
+        });
+        // Redirect to purchase credits with order context
+        router.push(`/comprar-creditos?orderId=${result.order.id}`);
+      } else {
+        toast({ 
+          title: 'Sucesso!', 
+          description: 'Música encomendada! Você será redirecionado.' 
+        });
+        router.push('/dashboard');
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      const userEmail = (await supabase.auth.getUser()).data.user?.email || 'unknown';
-      logger.error('Unexpected error on submit', { 
-        error: errorMessage,
-        email: userEmail,
-        formData: JSON.stringify(data),
-        action: 'create_music_submit'
-      });
+      console.error('Error creating music order:', errorMessage);
       toast({ title: 'Erro', description: 'Erro inesperado. Tente novamente.' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -245,6 +267,36 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
               <span className="font-medium text-purple-700">
                 Créditos Disponíveis: {credits}
               </span>
+              {/* Debug button to refresh credits */}
+              <button 
+                type="button"
+                onClick={async () => {
+                  console.log('Manual refresh clicked');
+                  const { data: { user } } = await supabase.auth.getUser();
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (user && session?.access_token) {
+                    try {
+                      const response = await fetch('/api/auth/profile', {
+                        headers: {
+                          'Authorization': `Bearer ${session.access_token}`,
+                        },
+                      });
+                      if (response.ok) {
+                        const result = await response.json();
+                        if (result.success) {
+                          console.log('Manual refresh - found credits:', result.profile.credits);
+                          setCredits(result.profile.credits);
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Manual refresh failed:', error);
+                    }
+                  }
+                }}
+                className="ml-2 text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                ⟳
+              </button>
             </div>
           </div>
           <div className="bg-white/90 backdrop-blur-sm shadow-lg rounded-lg border-0">
@@ -391,14 +443,31 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
                 <div className="pt-6 border-t-2 border-gray-200">
                   <button
                     type="submit"
-                    className="w-full md:w-auto mx-auto flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600"
+                    disabled={isSubmitting}
+                    className={`w-full md:w-auto mx-auto flex items-center gap-2 px-6 py-3 rounded-lg transition-all ${
+                      isSubmitting 
+                        ? 'bg-gray-400 cursor-not-allowed' 
+                        : 'bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600'
+                    }`}
                   >
-                    <Volume2 className="w-5 h-5" />
-                    Criar Minha Música Personalizada
-                    <Sparkles className="w-5 h-5" />
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Criando Música...
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="w-5 h-5" />
+                        Criar Minha Música Personalizada
+                        <Sparkles className="w-5 h-5" />
+                      </>
+                    )}
                   </button>
                   <p className="text-center text-gray-600 mt-4">
-                    🎁 Sua música será criada com carinho e enviada em até 48 horas
+                    {isSubmitting 
+                      ? '⏳ Processando seu pedido...' 
+                      : '🎁 Sua música será criada com carinho e enviada em até 48 horas'
+                    }
                   </p>
                 </div>
               </form>
