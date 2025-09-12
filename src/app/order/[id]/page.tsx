@@ -9,7 +9,6 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   ArrowLeft,
-  Calendar,
   Clock,
   Download,
   Mail,
@@ -91,6 +90,7 @@ export default function OrderDetailPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [editingLyrics, setEditingLyrics] = useState<string | null>(null); // Track which file's lyrics are being edited
   const [lyricsContent, setLyricsContent] = useState<{[key: string]: string}>({});
   const [savingLyrics, setSavingLyrics] = useState<string | null>(null); // Track which file's lyrics are being saved
@@ -209,6 +209,42 @@ export default function OrderDetailPage() {
     } catch (error) {
       console.error('Error deleting music file:', error);
       alert('Erro ao excluir arquivo. Tente novamente.');
+    }
+  };
+
+  const updateOrderStatus = async (newStatus: OrderStatus) => {
+    if (!profile?.isAdmin) return;
+
+    setUpdatingStatus(true);
+    try {
+      const response = await fetch(`/api/orders/${orderId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: newStatus,
+          updatedBy: profile.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        // Update local state
+        setOrder(prev => prev ? {
+          ...prev,
+          status: newStatus,
+          updatedAt: new Date().toISOString()
+        } : null);
+        logger.info('Order status updated', { orderId, newStatus });
+      } else {
+        throw new Error(data.error || 'Failed to update order status');
+      }
+    } catch (error) {
+      logger.error('Error updating order status', { error, orderId, newStatus });
+      alert('Erro ao atualizar status do pedido');
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -332,14 +368,40 @@ export default function OrderDetailPage() {
           
           {/* Unified Status */}
           <div className="mb-6">
-            <div className="mb-4">
+            <div className="mb-4 flex items-center justify-between">
               <span className={`px-3 py-1 text-sm rounded-full flex items-center gap-2 w-fit ${unifiedStatus.color}`}>
                 {unifiedStatus.icon} {unifiedStatus.text}
               </span>
+              
+              {/* Status Change (Admin Only) */}
+              {isAdmin && order.status !== 'COMPLETED' && order.status !== 'CANCELED' && order.paymentStatus === 'PAID' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Alterar Status:</label>
+                  <select
+                    value={order.status}
+                    onChange={(e) => updateOrderStatus(e.target.value as OrderStatus)}
+                    disabled={updatingStatus}
+                    className="text-sm border border-gray-300 rounded px-3 py-1 bg-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                  >
+                    <option value="PENDING">Pendente</option>
+                    <option value="IN_PRODUCTION">Em Produção</option>
+                    <option value="COMPLETED">Concluída</option>
+                    <option value="CANCELED">Cancelada</option>
+                  </select>
+                  {updatingStatus && (
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  )}
+                </div>
+              )}
             </div>
             <p className="text-sm text-gray-600">
               Criado: {format(new Date(order.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
             </p>
+            {order.updatedAt !== order.createdAt && (
+              <p className="text-sm text-gray-500">
+                Última atualização: {format(new Date(order.updatedAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+              </p>
+            )}
           </div>
 
           {/* Customer Info (Admin only) */}
