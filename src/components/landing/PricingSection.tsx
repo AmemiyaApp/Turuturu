@@ -7,28 +7,28 @@ import { logger } from '@/lib/logger';
 
 const plans = [
   {
-    name: 'Música Individual',
-    price: 'R$ 99,90',
+    name: '1 Crédito',
+    price: 'R$ 34,90',
     description: 'Perfeito para experimentar',
-    features: ['1 música personalizada', 'Entrega em 24h', 'Download ilimitado', 'Suporte por email'],
+    features: ['1 música personalizada', 'Suporte por email'],
     buttonText: 'Criar Música',
     popular: false,
   },
   {
-    name: 'Pacote Família',
-    price: 'R$ 229,90',
-    originalPrice: 'R$ 299,70',
+    name: '3 Créditos',
+    price: 'R$ 89,90',
+    originalPrice: 'R$ 104,70',
     description: 'Mais popular entre as famílias',
-    features: ['3 músicas personalizadas', 'Economia de R$ 69,80', 'Entrega em 24h cada', 'Download ilimitado', 'Suporte prioritário'],
+    features: ['3 músicas personalizadas', 'Economia de R$ 14,80', 'Suporte prioritário'],
     buttonText: 'Escolher Pacote',
     popular: true,
   },
   {
-    name: 'Pacote Premium',
-    price: 'R$ 449,90',
-    originalPrice: 'R$ 599,40',
-    description: 'Máximo valor para sua família',
-    features: ['6 músicas personalizadas', 'Economia de R$ 149,50', 'Entrega em 24h cada', 'Download ilimitado', 'Suporte VIP', 'Revisões gratuitas'],
+    name: '5 Créditos',
+    price: 'R$ 129,90',
+    originalPrice: 'R$ 174,50',
+    description: 'Melhor valor para sua família',
+    features: ['5 músicas personalizadas', 'Economia de R$ 44,60', 'Suporte prioritário', 'Ideal para presentear'],
     buttonText: 'Escolher Premium',
     popular: false,
   },
@@ -50,11 +50,11 @@ export function PricingSection() {
             Pacotes especiais com desconto progressivo. Quanto mais músicas, maior a economia!
           </p>
         </div>
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-3 gap-8 items-stretch">
           {plans.map((plan, index) => (
             <div
               key={index}
-              className={`relative p-8 bg-white rounded-lg shadow ${plan.popular ? 'border-blue-500 scale-105' : 'border-gray-100 hover:shadow-lg'} border`}
+              className={`relative p-8 bg-white rounded-lg shadow ${plan.popular ? 'border-blue-500 scale-105' : 'border-gray-100 hover:shadow-lg'} border h-full flex flex-col`}
             >
               {plan.popular && (
                 <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-blue-500 to-purple-500 text-white px-3 py-1 rounded-full text-sm">
@@ -78,7 +78,7 @@ export function PricingSection() {
                   )}
                 </div>
               </div>
-              <ul className="space-y-3 mb-8">
+              <ul className="space-y-3 mb-8 flex-grow">
                 {plan.features.map((feature, featureIndex) => (
                   <li key={featureIndex} className="flex items-center gap-3">
                     <Check className="w-4 h-4 text-green-500" />
@@ -89,7 +89,7 @@ export function PricingSection() {
               <Link
                 href="/auth"
                 onClick={() => handlePricingClick(plan.name)}
-                className="block w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600"
+                className="block w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600 mt-auto"
               >
                 {plan.buttonText}
               </Link>

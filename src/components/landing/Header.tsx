@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Music } from 'lucide-react';
+import Image from 'next/image';
 import { logger } from '@/lib/logger';
 
 export function Header() {
@@ -14,14 +14,22 @@ export function Header() {
     <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-            <Music className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-xl font-bold text-gray-900">Turuturu</h1>
+          <Image 
+            src="/logo.png" 
+            alt="Turuturu Logo" 
+            width={160} 
+            height={40} 
+            className="h-10 w-auto" 
+            priority
+            quality={95}
+          />
         </div>
         <nav className="hidden md:flex items-center gap-6">
           <Link href="#como-funciona" onClick={() => handleNavClick('Como Funciona')} className="text-gray-600 hover:text-gray-900">
             Como Funciona
+          </Link>
+          <Link href="/exemplos" onClick={() => handleNavClick('Exemplos')} className="text-gray-600 hover:text-gray-900">
+            Exemplos
           </Link>
           <Link href="#precos" onClick={() => handleNavClick('Preços')} className="text-gray-600 hover:text-gray-900">
             Preços

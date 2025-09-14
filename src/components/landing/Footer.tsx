@@ -1,5 +1,5 @@
 // src\components\landing\Footer.tsx
-import { Music } from 'lucide-react';
+import Image from 'next/image';
 
 export function Footer() {
   return (
@@ -8,10 +8,16 @@ export function Footer() {
         <div className="grid md:grid-cols-4 gap-8">
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                <Music className="w-5 h-5 text-white" />
+              <div className="relative p-2 bg-white/40 backdrop-blur-sm rounded-lg border border-white/80 shadow-lg hover:bg-white/55 transition-all duration-300">
+                <Image 
+                  src="/logo.png" 
+                  alt="Turuturu Logo" 
+                  width={128} 
+                  height={32} 
+                  className="h-8 w-auto" 
+                  quality={95}
+                />
               </div>
-              <h3 className="text-lg font-bold">Turuturu</h3>
             </div>
             <p className="text-gray-300 text-sm mb-6 max-w-md">
               Transformando crianças em protagonistas de suas próprias músicas. Desenvolvimento infantil através da magia da música personalizada.

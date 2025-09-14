@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { loadStripe } from '@stripe/stripe-js';
 import { supabase } from '@/lib/supabase/client';
 import { logger } from '@/lib/logger';
 import { format } from 'date-fns';
@@ -15,6 +16,7 @@ import {
   PlusCircle,
   Sparkles,
   Wallet,
+  CreditCard,
 } from 'lucide-react';
 import { Database } from '@/types/supabase';
 import { AppHeader } from '@/components/layout/AppHeader';
@@ -59,11 +61,68 @@ const getUnifiedStatusInfo = (orderStatus: Order['status'], paymentStatus: strin
 };
 
 export default function DashboardPage() {
-  const [profile, setProfile] = useState<Pick<Profile, 'name' | 'credits'> | null>(null);
+  const [profile, setProfile] = useState<Pick<Profile, 'name' | 'credits' | 'isAdmin'> | null>(null);
   const [orders, setOrders] = useState<OrderWithMusicFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const router = useRouter();
+
+  // Function to handle retry payment for pending orders
+  const handleRetryPayment = async (orderId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent order detail navigation
+    
+    if (processingPayment) return; // Prevent multiple clicks
+    
+    setProcessingPayment(orderId);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/auth');
+        return;
+      }
+
+      // Create Stripe checkout session for 1 credit
+      const response = await fetch('/api/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: 34.90, // R$ 34,90 for 1 credit
+          credits: 1,
+          customerId: user.id,
+          packageName: '1 Crédito',
+        }),
+      });
+
+      const result = await response.json();
+      if (!result.success || result.error) {
+        throw new Error(result.error || 'Failed to create checkout session');
+      }
+
+      // Redirect to Stripe Checkout
+      const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+      if (!stripe) {
+        throw new Error('Stripe não foi carregado. Verifique sua conexão com a internet.');
+      }
+
+      const { error: stripeError } = await stripe.redirectToCheckout({
+        sessionId: result.sessionId,
+      });
+
+      if (stripeError) {
+        throw new Error(stripeError.message || 'Erro ao redirecionar para pagamento');
+      }
+    } catch (error) {
+      console.error('Retry payment error:', error);
+      // Fallback to credit purchase page
+      router.push(`/comprar-creditos?orderId=${orderId}`);
+    } finally {
+      setProcessingPayment(null);
+    }
+  };
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -312,6 +371,23 @@ export default function DashboardPage() {
                         <a href={order.musicFile.url} download target="_blank" rel="noopener noreferrer" className="bg-green-500 text-white hover:bg-green-600 px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2">
                           <Download className="w-4 h-4" /> Ouvir / Baixar
                         </a>
+                      ) : order.status === 'AWAITING_PAYMENT' || order.paymentStatus === 'PENDING' ? (
+                        <button 
+                          onClick={(e) => handleRetryPayment(order.id, e)}
+                          disabled={processingPayment === order.id}
+                          className="bg-orange-500 text-white hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2"
+                        >
+                          {processingPayment === order.id ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              Processando...
+                            </>
+                          ) : (
+                            <>
+                              <CreditCard className="w-4 h-4" /> Pagar Agora
+                            </>
+                          )}
+                        </button>
                       ) : (
                         <button disabled className="bg-gray-200 text-gray-500 px-4 py-2 rounded-md text-sm font-medium cursor-not-allowed">
                           Processando

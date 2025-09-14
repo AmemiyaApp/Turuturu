@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
+import { loadStripe } from '@stripe/stripe-js';
 import { supabase } from '@/lib/supabase/client';
 import { useToast } from '@/lib/utils/useToast';
 import { Music, Heart, Sparkles, Volume2, Star, Ticket } from 'lucide-react';
@@ -16,6 +17,7 @@ import { Database } from '@/types/supabase';
 const formSchema = z.object({
   childName: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
   childNamePronunciation: z.string().optional(),
+  vocalGender: z.string().min(1, 'Selecione o tipo de vocal'),
   theme: z.string().min(10, 'Descreva o tema com pelo menos 10 caracteres'),
   musicStyle: z.string().min(1, 'Selecione um estilo musical'),
   instruments: z.array(z.string()).min(1, 'Selecione pelo menos um instrumento'),
@@ -60,6 +62,7 @@ export default function CreateMusic() {
     defaultValues: {
       childName: '',
       childNamePronunciation: '',
+      vocalGender: '',
       theme: '',
       musicStyle: '',
       instruments: [],
@@ -193,6 +196,7 @@ export default function CreateMusic() {
       }
 
       const prompt = `Nome: ${data.childName} (pronúncia: ${data.childNamePronunciation || 'não especificado'})
+Tipo de Vocal: ${data.vocalGender}
 Tema: ${data.theme}
 Instrumentos: ${data.instruments.join(', ')}
 Efeitos: ${data.effects.join(', ')}
@@ -225,10 +229,47 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
       if (result.needsPayment) {
         toast({ 
           title: 'Pedido Salvo!', 
-          description: 'Seu pedido foi salvo. Você será redirecionado para completar o pagamento.' 
+          description: 'Seu pedido foi salvo. Você será redirecionado para o pagamento.' 
         });
-        // Redirect to purchase credits with order context
-        router.push(`/comprar-creditos?orderId=${result.order.id}`);
+        
+        // Redirect directly to Stripe checkout for 1 credit
+        try {
+          const checkoutResponse = await fetch('/api/stripe/create-checkout-session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: 34.90, // R$ 34,90 for 1 credit
+              credits: 1,
+              customerId: user.id,
+              packageName: '1 Crédito',
+            }),
+          });
+
+          const checkoutResult = await checkoutResponse.json();
+          if (!checkoutResult.success || checkoutResult.error) {
+            throw new Error(checkoutResult.error || 'Failed to create checkout session');
+          }
+
+          // Redirect to Stripe Checkout
+          const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+          if (!stripe) {
+            throw new Error('Stripe não foi carregado. Verifique sua conexão com a internet.');
+          }
+
+          const { error: stripeError } = await stripe.redirectToCheckout({
+            sessionId: checkoutResult.sessionId,
+          });
+
+          if (stripeError) {
+            throw new Error(stripeError.message || 'Erro ao redirecionar para pagamento');
+          }
+        } catch (checkoutError) {
+          console.error('Checkout error:', checkoutError);
+          // Fallback to credit purchase page if checkout fails
+          router.push(`/comprar-creditos?orderId=${result.order.id}`);
+        }
       } else {
         toast({ 
           title: 'Sucesso!', 
@@ -335,22 +376,39 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
                       <p className="text-sm text-gray-500 mt-1">Opcional: Ajude-nos com a pronúncia correta</p>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Idade da Criança</label>
-                    <select
-                      {...form.register('childAge')}
-                      className="mt-2 w-full rounded-md border border-gray-300 p-3 focus:border-blue-500"
-                    >
-                      <option value="">Selecione a idade</option>
-                      <option value="0-1">0-1 anos</option>
-                      <option value="2-3">2-3 anos</option>
-                      <option value="4-5">4-5 anos</option>
-                      <option value="6-7">6-7 anos</option>
-                    </select>
-                    {form.formState.errors.childAge && (
-                      <p className="text-sm text-red-500 mt-1">{form.formState.errors.childAge.message}</p>
-                    )}
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Tipo de Vocal</label>
+                      <select
+                        {...form.register('vocalGender')}
+                        className="mt-2 w-full rounded-md border border-gray-300 p-3 focus:border-blue-500"
+                      >
+                        <option value="">Selecione o tipo de vocal</option>
+                        <option value="feminino">🎤 Feminino</option>
+                        <option value="masculino">🎤 Masculino</option>
+                      </select>
+                      {form.formState.errors.vocalGender && (
+                        <p className="text-sm text-red-500 mt-1">{form.formState.errors.vocalGender.message}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Idade da Criança</label>
+                      <select
+                        {...form.register('childAge')}
+                        className="mt-2 w-full rounded-md border border-gray-300 p-3 focus:border-blue-500"
+                      >
+                        <option value="">Selecione a idade</option>
+                        <option value="0-1">0-1 anos</option>
+                        <option value="2-3">2-3 anos</option>
+                        <option value="4-5">4-5 anos</option>
+                        <option value="6-7">6-7 anos</option>
+                      </select>
+                      {form.formState.errors.childAge && (
+                        <p className="text-sm text-red-500 mt-1">{form.formState.errors.childAge.message}</p>
+                      )}
+                    </div>
                   </div>
+
                 </div>
                 <div className="space-y-6">
                   <h3 className="text-xl font-semibold text-gray-900 border-b-2 border-purple-200 pb-2">
@@ -466,7 +524,7 @@ Observação: ${data.additionalInfo || 'nenhuma'}`;
                   <p className="text-center text-gray-600 mt-4">
                     {isSubmitting 
                       ? '⏳ Processando seu pedido...' 
-                      : '🎁 Sua música será criada com carinho e enviada em até 48 horas'
+                      : '🎁 Sua música será criada com carinho e você receberá um email assim que estiver pronta'
                     }
                   </p>
                 </div>

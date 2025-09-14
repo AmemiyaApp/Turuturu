@@ -1,3 +1,4 @@
+// src\app\order\[id]\page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';

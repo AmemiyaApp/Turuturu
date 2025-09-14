@@ -241,13 +241,11 @@ export default function ComprarCreditosPage() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 items-center">
+        <div className="grid md:grid-cols-3 gap-8 items-stretch">
           {creditPackages.map((pkg, index) => {
             const isPopular = pkg.credits === 3; // Middle package is most popular
             const features = [
               `${pkg.credits} música${pkg.credits > 1 ? 's' : ''} 100% personalizada${pkg.credits > 1 ? 's' : ''}`,
-              'Entrega em até 48h',
-              'Acesso vitalício ao áudio',
             ];
             
             if (pkg.savings) {
@@ -267,7 +265,7 @@ export default function ComprarCreditosPage() {
                 key={pkg.productId || index}
                 className={`relative p-8 bg-white rounded-lg shadow-lg ${
                   isPopular ? 'border-2 border-purple-500' : 'border'
-                }`}
+                } h-full flex flex-col`}
               >
                 {isPopular && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-purple-500 text-white px-4 py-1 rounded-full text-sm font-semibold flex items-center gap-1">
@@ -289,7 +287,7 @@ export default function ComprarCreditosPage() {
                     </p>
                   )}
                 </div>
-                <ul className="space-y-3 mb-8">
+                <ul className="space-y-3 mb-8 flex-grow">
                   {features.map((feature, featureIndex) => (
                     <li key={featureIndex} className="flex items-center gap-3">
                       <Check className="w-5 h-5 text-green-500" />
@@ -300,7 +298,7 @@ export default function ComprarCreditosPage() {
                 <button
                   onClick={() => handlePurchase(pkg)}
                   disabled={loading === pkg.name}
-                  className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-auto"
                 >
                   {loading === pkg.name ? (
                     <>

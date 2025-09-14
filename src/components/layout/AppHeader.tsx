@@ -4,10 +4,11 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { logger } from '@/lib/logger';
-import { LayoutDashboard, LogOut, Music, PlusCircle, Ticket } from 'lucide-react';
+import { LayoutDashboard, LogOut, Music, PlusCircle, Ticket, Star } from 'lucide-react';
 
 export function AppHeader() {
   const [credits, setCredits] = useState<number | null>(null);
@@ -55,14 +56,23 @@ export function AppHeader() {
   return (
     <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-        {/* Logo e Navegação Principal */}
-        <div className="flex items-center gap-6">
+        {/* Logo */}
+        <div className="flex items-center">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-              <Music className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="hidden sm:block text-xl font-bold text-gray-900">Turuturu</h1>
+            <Image 
+              src="/logo.png" 
+              alt="Turuturu Logo" 
+              width={160} 
+              height={40} 
+              className="h-10 w-auto" 
+              priority
+              quality={95}
+            />
           </Link>
+        </div>
+
+        {/* Navegação e Ações do Usuário */}
+        <div className="flex items-center gap-6">
           <nav className="hidden md:flex items-center gap-4">
             <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 font-medium flex items-center gap-2">
               <LayoutDashboard className="w-4 h-4" />
@@ -72,27 +82,30 @@ export function AppHeader() {
               <PlusCircle className="w-4 h-4" />
               Criar Música
             </Link>
+            <Link href="/exemplos" className="text-gray-600 hover:text-gray-900 font-medium flex items-center gap-2">
+              <Star className="w-4 h-4" />
+              Exemplos
+            </Link>
           </nav>
-        </div>
-
-        {/* Ações do Usuário e Créditos */}
-        <div className="flex items-center gap-3">
-          {credits !== null && (
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-full border border-purple-200">
-              <Ticket className="w-5 h-5 text-purple-500" />
-              <span className="font-bold text-purple-700">{credits}</span>
-              <Link href="/comprar-creditos" className="ml-1 text-xs text-purple-600 hover:underline">
-                +
+          
+          <div className="flex items-center gap-3">
+            {credits !== null && (
+              <Link 
+                href="/comprar-creditos" 
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-full border border-purple-200 hover:bg-purple-100 transition-colors cursor-pointer"
+              >
+                <Ticket className="w-5 h-5 text-purple-500" />
+                <span className="font-bold text-purple-700">{credits}</span>
               </Link>
-            </div>
-          )}
-          <button
-            onClick={handleSignOut}
-            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-full"
-            title="Sair"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+            )}
+            <button
+              onClick={handleSignOut}
+              className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-full"
+              title="Sair"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
     </header>

@@ -4,16 +4,10 @@
 import Link from 'next/link';
 import { PlayCircle, Heart, Star } from 'lucide-react';
 import { logger } from '@/lib/logger';
-import { useToast } from '@/lib/utils/useToast';
 
 export function HeroSection() {
-  const { toast } = useToast();
   const handleCTAClick = (action: string) => {
     logger.info('Hero CTA clicked', { action });
-  };
-  const handleTestToast = () => {
-    toast({ title: 'Teste', description: 'Toast funcionando!' });
-    logger.info('Test toast triggered');
   };
 
   return (
@@ -45,19 +39,13 @@ export function HeroSection() {
                 Criar Primeira Música
               </Link>
               <Link
-                href="#beneficios"
+                href="/exemplos"
                 onClick={() => handleCTAClick('Ver Exemplos')}
                 className="flex items-center gap-2 px-6 py-3 bg-white/20 border border-gray-300 rounded-lg hover:bg-white/30"
               >
                 <Heart className="w-5 h-5" />
                 Ver Exemplos
               </Link>
-              <button
-                onClick={handleTestToast}
-                className="px-6 py-3 bg-gray-500 text-white rounded-lg"
-              >
-                Testar Toast
-              </button>
             </div>
             <div className="flex items-center justify-center lg:justify-start gap-6 mt-8 text-sm text-gray-600">
               <div className="flex items-center gap-2">
@@ -71,18 +59,32 @@ export function HeroSection() {
             </div>
           </div>
           <div className="relative">
-            <svg className="w-full max-w-md mx-auto h-auto" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="100" cy="100" r="80" fill="url(#grad)" />
-              <path d="M100 60c-22 0-40 18-40 40s18 40 40 40 40-18 40-40-18-40-40-40zm0 10c16.6 0 30 13.4 30 30s-13.4 30-30 30-30-13.4-30-30 13.4-30 30-30z" fill="#FFF" />
-              <defs>
-                <linearGradient id="grad" x1="0" x2="1">
-                  <stop offset="0" stopColor="#c7f9ff" />
-                  <stop offset="1" stopColor="#ffd1dc" />
-                </linearGradient>
-              </defs>
-            </svg>
-            <div className="absolute -top-4 -right-4 w-20 h-20 bg-blue-200/20 rounded-full blur-lg"></div>
-            <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-pink-200/20 rounded-full blur-lg"></div>
+            <div className="relative w-full max-w-md mx-auto">
+              {/* Video container with gradient border effect */}
+              <div className="relative p-1 bg-gradient-to-br from-blue-200 via-purple-200 to-pink-200 rounded-3xl shadow-2xl">
+                <video 
+                  className="w-full h-auto rounded-2xl object-cover aspect-[9/16] max-h-[500px]"
+                  autoPlay 
+                  muted 
+                  loop 
+                  playsInline
+                >
+                  <source src="/hero.mp4" type="video/mp4" />
+                  {/* Fallback for browsers that don't support video */}
+                  <div className="w-full h-[500px] bg-gradient-to-br from-blue-100 to-purple-100 rounded-2xl flex items-center justify-center">
+                    <p className="text-gray-500">Seu navegador não suporta vídeo</p>
+                  </div>
+                </video>
+              </div>
+              
+              {/* Decorative floating elements - maintaining original design */}
+              <div className="absolute -top-4 -right-4 w-20 h-20 bg-blue-200/20 rounded-full blur-lg animate-pulse"></div>
+              <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-pink-200/20 rounded-full blur-lg animate-pulse delay-1000"></div>
+              
+              {/* Additional decorative elements for enhanced visual appeal */}
+              <div className="absolute top-1/4 -left-2 w-8 h-8 bg-purple-200/30 rounded-full blur-sm animate-bounce delay-500"></div>
+              <div className="absolute bottom-1/4 -right-2 w-12 h-12 bg-blue-200/25 rounded-full blur-md animate-pulse delay-700"></div>
+            </div>
           </div>
         </div>
       </div>
